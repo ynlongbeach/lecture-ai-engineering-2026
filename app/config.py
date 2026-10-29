@@ -1,14 +1,19 @@
 """講座全体で共通の設定。
 
-APIキーやモデル名はコードに書かず、環境変数から読み込む。
+APIキーやモデル名はコードに書かず、環境変数またはローカルの tmp/gemini_api_key.txt から読み込む。
 """
 
 import os
+from pathlib import Path
 
 # 既定モデル。環境変数 AIE_MODEL を設定すると切り替えられる。
 #   例: export AIE_MODEL=gemini-3.5-flash
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 MODEL = os.getenv("AIE_MODEL", DEFAULT_MODEL)
+
+# プロジェクトルートディレクトリ
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOCAL_KEY_FILE = PROJECT_ROOT / "tmp" / "gemini_api_key.txt"
 
 
 def api_error_message(status: int, detail: str = "") -> str:
@@ -23,14 +28,27 @@ def api_error_message(status: int, detail: str = "") -> str:
 
 
 def get_api_key() -> str:
-    """環境変数 GEMINI_API_KEY を返す。未設定なら手順を表示して終了する。"""
+    """環境変数 GEMINI_API_KEY または tmp/gemini_api_key.txt から APIキーを返す。
+
+    未設定なら手順を表示して終了する。
+    """
     key = os.getenv("GEMINI_API_KEY")
-    if not key:
-        raise SystemExit(
-            "環境変数 GEMINI_API_KEY が見つかりません。\n"
-            "1. GitHub の Settings → Codespaces → Secrets に GEMINI_API_KEY を登録し、\n"
-            "   使う repository に自分の fork を選んでください。\n"
-            "2. Codespaces を起動したあとに登録した場合は、Codespaces を再起動してください。\n"
-            "   （左下の「Codespaces」→「Stop Current Codespace」→ 再度開く）"
-        )
-    return key
+    if key and key.strip():
+        return key.strip()
+
+    # ローカルの tmp/gemini_api_key.txt から読み込み（.gitignore 対象）
+    if LOCAL_KEY_FILE.is_file():
+        try:
+            file_key = LOCAL_KEY_FILE.read_text(encoding="utf-8").strip()
+            if file_key:
+                return file_key
+        except OSError:
+            pass
+
+    raise SystemExit(
+        "Gemini API キーが見つかりません。\n"
+        "以下のいずれかの方法で設定してください：\n"
+        "1. ローカル利用時: tmp/gemini_api_key.txt に APIキーを保存する（Git除外設定済み）\n"
+        "2. 環境変数の設定: export GEMINI_API_KEY='your-key' (Windows: $env:GEMINI_API_KEY='your-key')\n"
+        "3. Codespaces 利用時: GitHub Settings → Codespaces → Secrets に GEMINI_API_KEY を登録\n"
+    )
