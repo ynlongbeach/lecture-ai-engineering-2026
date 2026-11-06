@@ -5,11 +5,14 @@
 """
 
 import json
+import random
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 MAX_RESULTS = 3
+LOG_DIR = Path(__file__).resolve().parent.parent / "learning_log"
 
 
 @cache
@@ -65,6 +68,38 @@ def search_glossary(query: str) -> str:
         ],
         ensure_ascii=False,
     )
+
+
+def make_quiz(lecture: int) -> str:
+    """指定した回（1始まりの整数）の用語集から、確認問題を1問作って返す。
+
+    「第2回の確認問題を出して」「クイズを出して」のように、利用者が確認問題や
+    クイズを求めたときに使う。返ってきた question を出題し、answer は
+    利用者が答えるまで伏せておくこと。
+    """
+    terms = [e for e in load_glossary() if e["lecture"] == lecture]
+    if not terms:
+        return f"第{lecture}回の用語は用語集に見つかりませんでした。別の回を指定してください。"
+    entry = random.choice(terms)
+    return json.dumps(
+        {"question": f"「{entry['term']}」の意味は？", "answer": entry["definition"]},
+        ensure_ascii=False,
+    )
+
+
+def save_learning_log(content: str) -> str:
+    """学習の記録（学んだこと・気づき・疑問など）を、learning_log/ フォルダにファイルとして保存する。
+
+    利用者が「今日の学習を記録して」「ログに残して」のように、記録の保存を求めたときだけ使う。
+    content には保存する文章（Markdown）をそのまま入れる。保存は取り消しにくい操作なので、
+    実行の前に利用者の確認が入る。
+    """
+    if not content.strip():
+        return "保存する内容が空です。記録したい内容を指定してください。"
+    LOG_DIR.mkdir(exist_ok=True)
+    path = LOG_DIR / f"{datetime.now():%Y%m%d-%H%M%S}.md"
+    path.write_text(content.strip() + "\n", encoding="utf-8")
+    return f"{path.name} に保存しました。"
 
 
 def get_lecture_summary(lecture: int) -> str:
