@@ -11,9 +11,23 @@ from pathlib import Path
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 MODEL = os.getenv("AIE_MODEL", DEFAULT_MODEL)
 
-# プロジェクトルートディレクトリ
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LOCAL_KEY_FILE = PROJECT_ROOT / "tmp" / "gemini_api_key.txt"
+# 第5回: 1ページを1チャンクとして検索する。索引はscripts/build_rag_index.pyで作成する。
+ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = ROOT
+LOCAL_KEY_FILE = ROOT / "tmp" / "gemini_api_key.txt"
+RAG_SOURCE = ROOT / "data/rag_data/lectures.json"
+RAG_TREE = ROOT / "data/rag_data/tree.json"
+RAG_GRAPH = ROOT / "data/rag_data/graph.json"
+RAG_DB = Path(os.getenv("AIE_RAG_DB", str(ROOT / "data/rag_data/index.sqlite3")))
+RAG_DOCUMENT_IDS = ("lec01-main", "lec02-main", "lec03-main")
+RAG_TOP_K = 5
+GRAPH_START_K = 3
+GRAPH_HOPS = 2
+GRAPH_MAX_RESULTS = 10
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIMENSIONS = 768
+# 2,048トークンの上限に対し、タスク指定等の分を残す。超過時は切り捨てず停止する。
+EMBEDDING_MAX_TOKENS = 2000
 
 
 def api_error_message(status: int, detail: str = "") -> str:
