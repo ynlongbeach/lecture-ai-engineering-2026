@@ -54,3 +54,63 @@ def test_existing_index_survives_failed_rebuild(materials):
         build_index(source, database, rebuild=True, embedder=embed)
     assert database.read_bytes() == before
     assert not list(database.parent.glob(".rag-build-*"))
+
+
+def test_search_with_neighbors_returns_adjacent_pages_without_duplicates(monkeypatch):
+    pages = [
+        {"page_id": "lec02-main-p051", "document_id": "lec02-main", "lecture": 2,
+         "document_title": "講義2", "section": "章", "title": "p51", "page": 51, "content": "前ページ"},
+        {"page_id": "lec02-main-p052", "document_id": "lec02-main", "lecture": 2,
+         "document_title": "講義2", "section": "章", "title": "p52", "page": 52, "content": "中心ページ"},
+        {"page_id": "lec02-main-p053", "document_id": "lec02-main", "lecture": 2,
+         "document_title": "講義2", "section": "章", "title": "p53", "page": 53, "content": "次ページ"},
+        {"page_id": "lec03-main-p001", "document_id": "lec03-main", "lecture": 3,
+         "document_title": "講義3", "section": "章", "title": "p1", "page": 1, "content": "別資料"},
+    ]
+    hits = [{**pages[1], "distance": 0.1}, {**pages[2], "distance": 0.2}]
+    monkeypatch.setattr(retrieval, "search", lambda _q: hits)
+    monkeypatch.setattr(retrieval, "load_pages", lambda _s=retrieval.RAG_SOURCE: pages)
+
+    results = retrieval.search_with_neighbors("LoRA", window=1)
+    assert [r["page_id"] for r in results] == ["lec02-main-p051", "lec02-main-p052", "lec02-main-p053"]
+    assert [r["match_type"] for r in results] == ["neighbor", "seed", "seed"]
+    assert results[0]["anchor_page"] == 52
+
+
+def test_browse_tree_enhanced_skips_duplicate_headers():
+    result = retrieval.browse_tree_enhanced("lec03-main-s037")
+    by_id = {child["id"]: child for child in result["children"]}
+    assert "1つのセッションの中で効くもの" in by_id["lec03-main-p039"]["content"]
+    assert "毎晩過去のやり取りを読み直し" in by_id["lec03-main-p040"]["content"]
+
+
+def test_search_graph_enhanced_traverses_related_terms(tmp_path, monkeypatch):
+    pages = [
+        {"page_id": "lec03-main-p001", "document_id": "lec03-main", "lecture": 3,
+         "document_title": "講義3", "section": "章1", "title": "ページ1", "page": 1, "content": "入口"},
+        {"page_id": "lec03-main-p010", "document_id": "lec03-main", "lecture": 3,
+         "document_title": "講義3", "section": "章2", "title": "ページ10", "page": 10, "content": "関連先"},
+    ]
+    graph = {
+        "nodes": [
+            {"id": "lec03-main-p001", "kind": "page", "title": "ページ1"},
+            {"id": "lec03-main-p010", "kind": "page", "title": "ページ10"},
+            {"id": "term:a", "kind": "term", "title": "用語A"},
+            {"id": "term:b", "kind": "term", "title": "用語B"},
+        ],
+        "edges": [
+            {"source": "lec03-main-p001", "target": "term:a", "relation": "mentions"},
+            {"source": "term:a", "target": "term:b", "relation": "related_term"},
+            {"source": "lec03-main-p010", "target": "term:b", "relation": "mentions"},
+        ],
+    }
+    graph_file = tmp_path / "graph.json"
+    graph_file.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(retrieval, "RAG_GRAPH", graph_file)
+    monkeypatch.setattr(retrieval, "load_pages", lambda _s=retrieval.RAG_SOURCE: pages)
+    monkeypatch.setattr(retrieval, "search", lambda _q: [{**pages[0], "distance": 0.1}])
+
+    res = retrieval.search_graph_enhanced("テスト")
+    assert [s["page_id"] for s in res["seeds"]] == ["lec03-main-p001"]
+    assert [e["page_id"] for e in res["expanded"]] == ["lec03-main-p010"]
+    assert res["expanded"][0]["hops"] == 2.3

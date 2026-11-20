@@ -11,7 +11,8 @@ from pydantic_ai import DeferredToolRequests
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from pydantic_ai.models.test import TestModel
 
-from app.agent import agent
+from app import tools
+from app.agent import HYBRID_INSTRUCTIONS, NEIGHBORS_INSTRUCTIONS, agent
 
 BASE_TOOLS = {"search_materials"}
 
@@ -46,3 +47,32 @@ def test_material_result_reaches_the_model(monkeypatch):
     returns = _parts(result, ToolReturnPart)
     assert returns and returns[0].tool_name == "search_materials"
     assert json.loads(returns[0].content)["results"] == [hit]
+
+
+def test_neighbors_mode_calls_neighbors_tool(monkeypatch):
+    hit = {"page_id": "lec02-main-p052", "lecture": 2, "page": 52, "content": "元の重みは固定", "match_type": "seed"}
+    monkeypatch.setattr("app.retrieval.search_with_neighbors", lambda *args, **kwargs: [hit])
+    model = TestModel()
+    with agent.override(model=model, instructions=NEIGHBORS_INSTRUCTIONS, tools=[tools.search_materials_with_neighbors]):
+        result = agent.run_sync("LoRAとは？")
+    offered = {t.name for t in model.last_model_request_parameters.function_tools}
+    assert offered == {"search_materials_with_neighbors"}
+    returns = _parts(result, ToolReturnPart)
+    assert returns and returns[0].tool_name == "search_materials_with_neighbors"
+    assert json.loads(returns[0].content)["results"] == [hit]
+
+
+def test_hybrid_mode_offers_and_calls_enhanced_tools(monkeypatch):
+    monkeypatch.setattr("app.retrieval.search_graph_enhanced", lambda *args, **kwargs: {"seeds": [], "expanded": [], "max_hops": 2})
+    monkeypatch.setattr("app.retrieval.browse_tree_enhanced", lambda *args, **kwargs: {"node": {"id": "root", "kind": "collection", "title": "all"}, "children": []})
+    model = TestModel()
+    with agent.override(
+        model=model,
+        instructions=HYBRID_INSTRUCTIONS,
+        tools=[tools.search_graph_enhanced, tools.browse_tree_enhanced],
+    ):
+        result = agent.run_sync("ハーネスとは？")
+    offered = {t.name for t in model.last_model_request_parameters.function_tools}
+    assert offered == {"search_graph_enhanced", "browse_tree_enhanced"}
+    called = {p.tool_name for p in _parts(result, ToolCallPart)}
+    assert offered <= called
