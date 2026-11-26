@@ -89,3 +89,30 @@ def test_config_mistakes_are_reported_in_words(tmp_path, text, expected):
     path.write_text(text, encoding="utf-8")
     with pytest.raises(ConfigError, match=expected):
         read_config(path)
+
+
+def test_glossary_server_exposes_summary_and_quiz_tools(tmp_path):
+    """宿題（基礎・実装）で追加した get_lecture_summary と make_quiz が公開されている。"""
+    model = TestModel(call_tools=[])
+    build_mcp_agent(_glossary_only_config(tmp_path)).run_sync("ツール一覧", model=model)
+
+    offered = {t.name for t in model.last_model_request_parameters.function_tools}
+    assert {"glossary_search_glossary", "glossary_get_lecture_summary", "glossary_make_quiz"} <= offered
+
+
+def test_glossary_make_quiz_works_and_handles_out_of_range(tmp_path):
+    """make_quiz が MCP 経由で呼べ、範囲外の回に対して案内メッセージを返す。"""
+    from app import tools
+
+    quiz_tool = "glossary_make_quiz"
+    model = TestModel(call_tools=[quiz_tool])
+    result = build_mcp_agent(_glossary_only_config(tmp_path)).run_sync("第2回のクイズを作って", model=model)
+
+    assert [p.tool_name for p in _parts(result, ToolCallPart)] == [quiz_tool]
+    returns = _parts(result, ToolReturnPart)
+    assert returns and returns[0].tool_name == quiz_tool
+    assert str(returns[0].content).strip()
+
+    out_of_range = tools.make_quiz(99)
+    assert "見つかりませんでした" in out_of_range
+    assert "第1回" in out_of_range and "第2回" in out_of_range
